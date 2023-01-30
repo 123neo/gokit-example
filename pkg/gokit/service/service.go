@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"gokit-example/pkg/gokit/dao"
 	"gokit-example/pkg/gokit/model"
 
+	"github.com/gofrs/uuid"
 	"go.uber.org/zap"
 )
 
@@ -21,13 +23,13 @@ type UserService interface {
 
 type userServiceHandler struct {
 	logger *zap.Logger
-	db     *sql.DB
+	pg     dao.UserSvcDao
 }
 
 func NewUsrService(logger *zap.Logger, conn *sql.DB) UserService {
 	return &userServiceHandler{
 		logger: logger,
-		db:     conn,
+		pg:     dao.NewPostgresClient(conn),
 	}
 }
 
@@ -36,5 +38,25 @@ func (usr *userServiceHandler) CreateUser(ctx context.Context, user *model.User)
 		usr.logger.Error("Validate Error", zap.Error(errValidate))
 		return "", errValidate
 	}
-	return "", nil
+
+	uuid, err := uuid.NewV4()
+	if err != nil {
+		usr.logger.Warn("Error in generating uuid..")
+	}
+	id := uuid.String()
+	user.ID = id
+
+	// encrypting password
+
+	if hashString, err := HashPassword(user.Password); err != nil {
+		usr.logger.Error("Not able to encrypt password", zap.Error(err))
+	} else {
+		user.Password = hashString
+	}
+
+	if err := usr.pg.CreateUser(ctx, user); err != nil {
+		usr.logger.Error("Create User Error:", zap.Error(err))
+		return "", err
+	}
+	return user.ID, nil
 }
